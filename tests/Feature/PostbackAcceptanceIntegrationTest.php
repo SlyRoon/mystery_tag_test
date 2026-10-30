@@ -3,9 +3,12 @@
 namespace Tests\Feature;
 
 use App\Jobs\SendPostbackToPartner;
+use App\Support\PostbackDeliveryHandler;
 use Illuminate\Database\Events\QueryExecuted;
+use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Redis;
 use RuntimeException;
 use Tests\TestCase;
@@ -101,6 +104,77 @@ class PostbackAcceptanceIntegrationTest extends TestCase
         $this->assertSame(0, DB::table('events')->count());
         $this->assertSame(0, DB::table('jobs')->count());
         $this->assertSame(0, DB::table('deduplication_keys')->count());
+    }
+
+    public function test_successful_partner_response_marks_the_event_sent(): void
+    {
+        Http::fake(['*' => Http::response('', 204)]);
+        $clickId = 'delivery-'.bin2hex(random_bytes(8));
+
+        $this->get($this->postbackUrl($clickId, '49.90'))->assertOk();
+        $event = DB::table('events')->first();
+
+        app(PostbackDeliveryHandler::class)->deliver((int) $event->id);
+
+        $event = DB::table('events')->first();
+        $this->assertSame('sent', $event->status);
+        $this->assertSame(1, $event->attempt_count);
+        $this->assertNotNull($event->sent_at);
+        $this->assertNull($event->last_error);
+        Http::assertSent(fn (Request $request): bool => $request->body() === '{"click_id":"'.$clickId.'","event":"purchase","amount":499e-1}');
+        Http::assertSentCount(1);
+    }
+
+    public function test_retryable_partner_failures_stop_after_three_post_attempts(): void
+    {
+        Http::fakeSequence()
+            ->push('', 503)
+            ->push('', 429)
+            ->push('', 500)
+            ->push(['status' => 'ok'], 200);
+        $clickId = 'retry-'.bin2hex(random_bytes(8));
+
+        $this->get($this->postbackUrl($clickId, '1'))->assertOk();
+        $eventId = (int) DB::table('events')->value('id');
+        $handler = app(PostbackDeliveryHandler::class);
+
+        for ($attempt = 1; $attempt <= 3; $attempt++) {
+            DB::table('jobs')->delete();
+            if ($attempt > 1) {
+                DB::table('events')->where('id', $eventId)->update(['next_attempt_at' => DB::raw('UTC_TIMESTAMP(6)')]);
+            }
+
+            $handler->deliver($eventId);
+            $event = DB::table('events')->where('id', $eventId)->first();
+            $this->assertSame($attempt, (int) $event->attempt_count);
+            $this->assertSame($attempt === 3 ? 'failed' : 'pending', $event->status);
+            $this->assertSame('http_'.[503, 429, 500][$attempt - 1], $event->last_error);
+            $this->assertSame($attempt < 3 ? 1 : 0, DB::table('jobs')->count());
+        }
+
+        $handler->deliver($eventId);
+
+        $this->assertSame(3, (int) DB::table('events')->where('id', $eventId)->value('attempt_count'));
+        Http::assertSentCount(3);
+    }
+
+    public function test_other_client_errors_fail_without_a_retry(): void
+    {
+        Http::fake(['*' => Http::response('bad request', 400)]);
+        $clickId = 'permanent-'.bin2hex(random_bytes(8));
+
+        $this->get($this->postbackUrl($clickId, '1'))->assertOk();
+        $eventId = (int) DB::table('events')->value('id');
+        DB::table('jobs')->delete();
+
+        app(PostbackDeliveryHandler::class)->deliver($eventId);
+
+        $event = DB::table('events')->where('id', $eventId)->first();
+        $this->assertSame('failed', $event->status);
+        $this->assertSame(1, (int) $event->attempt_count);
+        $this->assertSame('http_400', $event->last_error);
+        $this->assertSame(0, DB::table('jobs')->count());
+        Http::assertSentCount(1);
     }
 
     private function postbackUrl(string $clickId, string $amount): string
