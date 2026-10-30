@@ -12,7 +12,7 @@ final class PartnerPostbackClient
     /**
      * @throws JsonException
      */
-    public function send(string $clickId, string $eventName, string $canonicalAmount): PartnerPostbackResult
+    public function send(string $clickId, string $eventName, string $canonicalAmount): PartnerPostbackResponse
     {
         if (preg_match('/\A(?:0|[1-9][0-9]*e-?(?:0|[1-9][0-9]*))\z/', $canonicalAmount) !== 1) {
             throw new InvalidArgumentException('Amount must be a canonical decimal number');
@@ -34,20 +34,22 @@ final class PartnerPostbackClient
                 ->withBody($body, 'application/json')
                 ->post($url);
         } catch (ConnectionException $exception) {
-            return $this->isTimeout($exception)
+            $result = $this->isTimeout($exception)
                 ? PartnerPostbackResult::Timeout
                 : PartnerPostbackResult::NetworkFailure;
+
+            return new PartnerPostbackResponse($result, null);
         }
 
         if ($response->successful()) {
-            return PartnerPostbackResult::Sent;
+            return new PartnerPostbackResponse(PartnerPostbackResult::Sent, $response->status());
         }
 
         if ($response->status() === 429 || $response->serverError()) {
-            return PartnerPostbackResult::RetryableHttpFailure;
+            return new PartnerPostbackResponse(PartnerPostbackResult::RetryableHttpFailure, $response->status());
         }
 
-        return PartnerPostbackResult::PermanentFailure;
+        return new PartnerPostbackResponse(PartnerPostbackResult::PermanentFailure, $response->status());
     }
 
     private function isTimeout(ConnectionException $exception): bool

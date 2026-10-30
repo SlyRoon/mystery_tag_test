@@ -28,7 +28,8 @@ class PartnerPostbackClientTest extends TestCase
 
         $result = app(PartnerPostbackClient::class)->send('clk_123', 'purchase', '499e-1');
 
-        $this->assertSame(PartnerPostbackResult::Sent, $result);
+        $this->assertSame(PartnerPostbackResult::Sent, $result->result);
+        $this->assertSame(204, $result->httpStatus);
         Http::assertSent(fn (Request $request): bool => $request->url() === 'http://partner.test/postback'
             && $request->method() === 'POST'
             && $request->header('Content-Type') === ['application/json']
@@ -42,7 +43,7 @@ class PartnerPostbackClientTest extends TestCase
 
         $result = app(PartnerPostbackClient::class)->send('c', 'e', '0');
 
-        $this->assertSame(PartnerPostbackResult::Sent, $result);
+        $this->assertSame(PartnerPostbackResult::Sent, $result->result);
         Http::assertSent(fn (Request $request): bool => $request->body() === '{"click_id":"c","event":"e","amount":0}');
     }
 
@@ -54,8 +55,8 @@ class PartnerPostbackClientTest extends TestCase
 
         $client = app(PartnerPostbackClient::class);
 
-        $this->assertSame(PartnerPostbackResult::RetryableHttpFailure, $client->send('c', 'e', '1e0'));
-        $this->assertSame(PartnerPostbackResult::RetryableHttpFailure, $client->send('c', 'e', '1e0'));
+        $this->assertSame(PartnerPostbackResult::RetryableHttpFailure, $client->send('c', 'e', '1e0')->result);
+        $this->assertSame(PartnerPostbackResult::RetryableHttpFailure, $client->send('c', 'e', '1e0')->result);
         Http::assertSentCount(2);
     }
 
@@ -67,8 +68,8 @@ class PartnerPostbackClientTest extends TestCase
 
         $client = app(PartnerPostbackClient::class);
 
-        $this->assertSame(PartnerPostbackResult::PermanentFailure, $client->send('c', 'e', '1e0'));
-        $this->assertSame(PartnerPostbackResult::PermanentFailure, $client->send('c', 'e', '1e0'));
+        $this->assertSame(PartnerPostbackResult::PermanentFailure, $client->send('c', 'e', '1e0')->result);
+        $this->assertSame(PartnerPostbackResult::PermanentFailure, $client->send('c', 'e', '1e0')->result);
         Http::assertSentCount(2);
     }
 
@@ -80,7 +81,7 @@ class PartnerPostbackClientTest extends TestCase
 
         $this->assertSame(
             PartnerPostbackResult::NetworkFailure,
-            app(PartnerPostbackClient::class)->send('c', 'e', '1e0'),
+            app(PartnerPostbackClient::class)->send('c', 'e', '1e0')->result,
         );
     }
 
@@ -92,7 +93,7 @@ class PartnerPostbackClientTest extends TestCase
 
         $this->assertSame(
             PartnerPostbackResult::Timeout,
-            app(PartnerPostbackClient::class)->send('c', 'e', '1e0'),
+            app(PartnerPostbackClient::class)->send('c', 'e', '1e0')->result,
         );
     }
 }
