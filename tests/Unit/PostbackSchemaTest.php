@@ -29,4 +29,21 @@ class PostbackSchemaTest extends TestCase
         $this->assertStringContainsString('`fingerprint` binary(32)', $sql);
         $this->assertStringContainsString('`expires_at` datetime(6)', $sql);
     }
+
+    public function test_delivery_tracking_migration_adds_only_the_required_retry_state(): void
+    {
+        $migrationFiles = glob(database_path('migrations/*add_delivery_tracking_to_events_table.php'));
+
+        $this->assertCount(1, $migrationFiles);
+        $migration = require $migrationFiles[0];
+
+        $statements = DB::connection('mysql')->pretend(fn () => $migration->up());
+        $sql = strtolower(implode("\n", array_column($statements, 'query')));
+
+        $this->assertStringContainsString('`delivery_token` binary(16)', $sql);
+        $this->assertStringContainsString('`delivery_lease_until` datetime(6)', $sql);
+        $this->assertStringContainsString('`next_attempt_at` datetime(6) not null default current_timestamp', $sql);
+        $this->assertStringNotContainsString('delivery_attempts', $sql);
+        $this->assertStringNotContainsString('recovery_lease_until', $sql);
+    }
 }
