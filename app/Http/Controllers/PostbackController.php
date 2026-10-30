@@ -2,6 +2,8 @@
 
 namespace App\Http\Controllers;
 
+use App\Support\PostbackAcceptanceOutcome;
+use App\Support\PostbackAcceptor;
 use App\Support\PostbackQueryParser;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -10,18 +12,28 @@ use LengthException;
 
 class PostbackController extends Controller
 {
-    public function __invoke(Request $request, PostbackQueryParser $parser): JsonResponse
+    public function __invoke(Request $request, PostbackQueryParser $parser, PostbackAcceptor $acceptor): JsonResponse
     {
         try {
-            $parser->parse((string) $request->server->get('QUERY_STRING', ''));
+            $postback = $parser->parse((string) $request->server->get('QUERY_STRING', ''));
         } catch (LengthException) {
             return $this->error('Query string too long', 414);
         } catch (InvalidArgumentException) {
             return $this->error('Invalid parameters', 422);
         }
 
-        // APP-06 will replace this response after durable event and queue writes are available.
-        return $this->error('Service unavailable', 503);
+        return match ($acceptor->accept($postback)) {
+            PostbackAcceptanceOutcome::Accepted => $this->result('accepted', 'Event received', 200),
+            PostbackAcceptanceOutcome::Duplicate => $this->result('duplicate', 'Event already received', 200),
+            PostbackAcceptanceOutcome::Unavailable => $this->error('Service unavailable', 503),
+        };
+    }
+
+    private function result(string $status, string $message, int $httpStatus): JsonResponse
+    {
+        return response()
+            ->json(['status' => $status, 'message' => $message], $httpStatus)
+            ->header('Cache-Control', 'no-store');
     }
 
     private function error(string $message, int $status): JsonResponse

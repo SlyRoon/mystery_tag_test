@@ -2,18 +2,52 @@
 
 namespace Tests\Feature;
 
+use App\Support\PostbackAcceptanceOutcome;
+use App\Support\PostbackAcceptor;
 use Illuminate\Testing\TestResponse;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\TestCase;
 
 class PostbackEndpointTest extends TestCase
 {
-    public function test_valid_query_is_not_acknowledged_before_persistence_is_implemented(): void
+    public function test_new_postback_returns_the_accepted_response(): void
     {
+        $this->mock(PostbackAcceptor::class)
+            ->shouldReceive('accept')
+            ->once()
+            ->with(['click_id' => 'clk_123', 'event' => 'purchase', 'amount' => '499e-1'])
+            ->andReturn(PostbackAcceptanceOutcome::Accepted);
+
+        $this->get('/postback?click_id=clk_123&event=purchase&amount=49.90')
+            ->assertStatus(200)
+            ->assertExactJson(['status' => 'accepted', 'message' => 'Event received'])
+            ->assertHeader('Content-Type', 'application/json')
+            ->assertHeaderContains('Cache-Control', 'no-store');
+    }
+
+    public function test_duplicate_postback_returns_the_duplicate_response(): void
+    {
+        $this->mock(PostbackAcceptor::class)
+            ->shouldReceive('accept')
+            ->once()
+            ->andReturn(PostbackAcceptanceOutcome::Duplicate);
+
+        $this->get('/postback?click_id=clk_123&event=purchase&amount=49.90')
+            ->assertStatus(200)
+            ->assertExactJson(['status' => 'duplicate', 'message' => 'Event already received'])
+            ->assertHeaderContains('Cache-Control', 'no-store');
+    }
+
+    public function test_acceptance_dependency_failure_returns_service_unavailable(): void
+    {
+        $this->mock(PostbackAcceptor::class)
+            ->shouldReceive('accept')
+            ->once()
+            ->andReturn(PostbackAcceptanceOutcome::Unavailable);
+
         $this->get('/postback?click_id=clk_123&event=purchase&amount=49.90')
             ->assertStatus(503)
             ->assertExactJson(['status' => 'error', 'message' => 'Service unavailable'])
-            ->assertHeader('Content-Type', 'application/json')
             ->assertHeaderContains('Cache-Control', 'no-store');
     }
 
@@ -59,9 +93,14 @@ class PostbackEndpointTest extends TestCase
 
     public function test_unknown_query_parameters_are_ignored(): void
     {
+        $this->mock(PostbackAcceptor::class)
+            ->shouldReceive('accept')
+            ->once()
+            ->andReturn(PostbackAcceptanceOutcome::Accepted);
+
         $this->get('/postback?click_id=clk_123&event=purchase&amount=49.90&source=affiliate')
-            ->assertStatus(503)
-            ->assertExactJson(['status' => 'error', 'message' => 'Service unavailable'])
+            ->assertStatus(200)
+            ->assertExactJson(['status' => 'accepted', 'message' => 'Event received'])
             ->assertHeaderContains('Cache-Control', 'no-store');
     }
 
@@ -71,8 +110,14 @@ class PostbackEndpointTest extends TestCase
         $suffix = '&event=e&amount=0';
         $paddingLength = 4096 - strlen($prefix) - strlen($suffix);
 
+        $this->mock(PostbackAcceptor::class)
+            ->shouldReceive('accept')
+            ->once()
+            ->andReturn(PostbackAcceptanceOutcome::Accepted);
+
         $this->get('/postback?'.$prefix.str_repeat('x', $paddingLength).$suffix)
-            ->assertStatus(503)
+            ->assertStatus(200)
+            ->assertExactJson(['status' => 'accepted', 'message' => 'Event received'])
             ->assertHeaderContains('Cache-Control', 'no-store');
 
         $this->get('/postback?'.$prefix.str_repeat('x', $paddingLength + 1).$suffix)
