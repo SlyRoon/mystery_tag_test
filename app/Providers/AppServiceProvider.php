@@ -3,9 +3,11 @@
 namespace App\Providers;
 
 use App\Support\MySqlPostbackAcceptanceStore;
+use App\Support\MySqlPostbackDeliveryHandler;
 use App\Support\PostbackAcceptanceService;
 use App\Support\PostbackAcceptanceStore;
 use App\Support\PostbackAcceptor;
+use App\Support\PostbackDeliveryHandler;
 use App\Support\RedisPostbackReservation;
 use App\Support\RuntimeConfiguration;
 use Illuminate\Support\Facades\Redis;
@@ -20,6 +22,7 @@ class AppServiceProvider extends ServiceProvider
     {
         $this->app->bind(PostbackAcceptor::class, PostbackAcceptanceService::class);
         $this->app->bind(PostbackAcceptanceStore::class, MySqlPostbackAcceptanceStore::class);
+        $this->app->bind(PostbackDeliveryHandler::class, MySqlPostbackDeliveryHandler::class);
 
         $this->app->bind(RedisPostbackReservation::class, fn (): RedisPostbackReservation => new RedisPostbackReservation(
             fn () => Redis::connection(),
@@ -61,7 +64,6 @@ class AppServiceProvider extends ServiceProvider
                 'worker' => config('postback.worker_timeout'),
                 'retry_after' => config('postback.retry_after'),
                 'delivery_lease' => config('postback.delivery_lease_seconds'),
-                'recovery_lease' => config('postback.recovery_lease_seconds'),
                 'redis_reservation_lease' => config('postback.redis_reservation_lease_ms'),
             ],
         ]);
