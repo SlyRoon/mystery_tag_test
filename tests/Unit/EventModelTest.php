@@ -21,9 +21,14 @@ class EventModelTest extends TestCase
             'attempt_count',
             'last_error',
             'sent_at',
+            'delivery_token',
+            'delivery_lease_until',
+            'next_attempt_at',
         ], $event->getFillable());
         $this->assertSame('immutable_datetime', $event->getCasts()['accepted_at']);
         $this->assertSame('immutable_datetime', $event->getCasts()['sent_at']);
+        $this->assertSame('immutable_datetime', $event->getCasts()['delivery_lease_until']);
+        $this->assertSame('immutable_datetime', $event->getCasts()['next_attempt_at']);
         $this->assertSame('integer', $event->getCasts()['attempt_count']);
     }
 }

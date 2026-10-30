@@ -17,6 +17,9 @@ class Event extends Model
         'attempt_count',
         'last_error',
         'sent_at',
+        'delivery_token',
+        'delivery_lease_until',
+        'next_attempt_at',
     ];
 
     protected function casts(): array
@@ -25,6 +28,8 @@ class Event extends Model
             'accepted_at' => 'immutable_datetime',
             'attempt_count' => 'integer',
             'sent_at' => 'immutable_datetime',
+            'delivery_lease_until' => 'immutable_datetime',
+            'next_attempt_at' => 'immutable_datetime',
         ];
     }
 }
