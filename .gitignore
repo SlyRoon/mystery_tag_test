@@ -1,0 +1,31 @@
+# Локальна конфігурація й секрети
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# PHP та залежності
+/vendor/
+/composer.phar
+
+# Тимчасові файли застосунку
+/bootstrap/cache/*.php
+/storage/app/
+/storage/framework/
+/storage/logs/
+!/storage/app/.gitignore
+!/storage/framework/.gitignore
+!/storage/logs/.gitignore
+
+# Редактори та ОС
+/.idea/
+/.vscode/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Покриття та тестові артефакти
+/coverage/
+/phpunit.result.cache
