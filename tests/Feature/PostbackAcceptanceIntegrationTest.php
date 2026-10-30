@@ -177,6 +177,68 @@ class PostbackAcceptanceIntegrationTest extends TestCase
         Http::assertSentCount(1);
     }
 
+    public function test_event_index_filters_and_paginates_stably_without_losing_amount_precision(): void
+    {
+        DB::table('events')->insert([
+            [
+                'click_id' => 'view-first',
+                'event_name' => 'purchase',
+                'amount_canonical' => '499e-1',
+                'accepted_at' => '2026-10-30 10:00:00.000000',
+                'status' => 'pending',
+                'attempt_count' => 0,
+            ],
+            [
+                'click_id' => 'view-second',
+                'event_name' => 'refund',
+                'amount_canonical' => '0',
+                'accepted_at' => '2026-10-30 10:00:00.000000',
+                'status' => 'pending',
+                'attempt_count' => 2,
+                'last_error' => 'http_503',
+            ],
+            [
+                'click_id' => 'view-sent',
+                'event_name' => 'purchase',
+                'amount_canonical' => '1e0',
+                'accepted_at' => '2026-10-30 09:00:00.000000',
+                'status' => 'sent',
+                'attempt_count' => 1,
+                'sent_at' => '2026-10-30 09:01:02.123456',
+            ],
+        ]);
+
+        $this->getJson('/api/events?status=pending&per_page=1&page=1')
+            ->assertOk()
+            ->assertExactJson([
+                'data' => [[
+                    'id' => (int) DB::table('events')->where('click_id', 'view-second')->value('id'),
+                    'click_id' => 'view-second',
+                    'event' => 'refund',
+                    'amount' => '0',
+                    'accepted_at' => '2026-10-30T10:00:00.000000Z',
+                    'status' => 'pending',
+                    'attempt_count' => 2,
+                    'last_error' => 'http_503',
+                    'sent_at' => null,
+                ]],
+                'meta' => ['page' => 1, 'per_page' => 1, 'total' => 2],
+            ])
+            ->assertHeaderContains('Cache-Control', 'no-store');
+
+        $this->getJson('/api/events?status=pending&per_page=1&page=2')
+            ->assertOk()
+            ->assertJsonPath('data.0.click_id', 'view-first')
+            ->assertJsonPath('meta.total', 2);
+
+        $this->getJson('/api/events?status=pending&per_page=1&page=9223372036854775807')
+            ->assertOk()
+            ->assertExactJson([
+                'data' => [],
+                'meta' => ['page' => PHP_INT_MAX, 'per_page' => 1, 'total' => 2],
+            ]);
+    }
+
     private function postbackUrl(string $clickId, string $amount): string
     {
         return '/postback?click_id='.rawurlencode($clickId).'&event=purchase&amount='.rawurlencode($amount);
