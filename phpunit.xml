@@ -46,7 +46,8 @@
         <env name="WORKER_TIMEOUT" value="15"/>
         <env name="DELIVERY_LEASE_SECONDS" value="45"/>
         <env name="RECOVERY_LEASE_SECONDS" value="600"/>
-        <env name="REDIS_RESERVATION_LEASE_SECONDS" value="15"/>
+        <env name="REDIS_RESERVATION_LEASE_MS" value="15000"/>
+        <env name="POSTBACK_INTEGRATION_TESTS" value="0"/>
         <env name="PULSE_ENABLED" value="false"/>
         <env name="TELESCOPE_ENABLED" value="false"/>
         <env name="NIGHTWATCH_ENABLED" value="false"/>
