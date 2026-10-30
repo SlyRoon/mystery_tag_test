@@ -29,5 +29,7 @@ COPY --from=composer:2.11.0 /usr/bin/composer /usr/bin/composer
 COPY . .
 RUN composer install --no-interaction --prefer-dist --optimize-autoloader \
     && mkdir -p storage/framework/cache/data storage/framework/sessions storage/framework/views storage/logs bootstrap/cache \
+    && touch .env \
+    && chown www-data:www-data . .env \
     && chown -R www-data:www-data storage bootstrap/cache
 USER www-data

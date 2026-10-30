@@ -15,4 +15,4 @@ storage/framework/cache/data/*
 storage/framework/sessions/*
 storage/framework/views/*.php
 bootstrap/cache/*.php
-phpunit.result.cache
+.phpunit.result.cache

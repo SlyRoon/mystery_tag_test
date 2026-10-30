@@ -138,6 +138,8 @@ docker compose up -d --force-recreate app worker scheduler
 
 Відповідь `accepted` означає, що сервіс зберіг подію й завдання; вона ще не підтверджує доставку партнеру.
 
+Якщо worker зупиниться після резервування спроби, фактичних POST може бути менше трьох. Якщо партнер отримав POST, але worker зупинився до запису відповіді в MySQL, наступна спроба може повторити доставку. API партнера не надає контракту ідемпотентності, тому сервіс не обіцяє рівно одного отримання події партнером. Завдання, вручну видалене з черги, автоматично не відновлюється.
+
 ## Діагностика недоставленої події
 
 1. Перевірте відповідь `GET /postback`, а потім знайдіть подію через `GET /api/events` за `click_id`, `status`, `attempt_count` і `last_error`.
@@ -148,10 +150,23 @@ docker compose up -d --force-recreate app worker scheduler
    docker compose --profile mock logs --tail=100 app worker scheduler mock-partner
    ```
 
-3. Перевірте, чи відповідають MySQL і Redis:
+3. Перевірте стан подій і черги в MySQL. Відкрийте shell контейнера, потім клієнт MySQL з обліковими даними контейнера:
 
    ```sh
-   docker compose exec mysql sh -c 'MYSQL_PWD="$MYSQL_PASSWORD" mysql --user="$MYSQL_USER" "$MYSQL_DATABASE" -e "SELECT id,status,attempt_count,last_error FROM events ORDER BY id DESC LIMIT 20"'
+   docker compose exec mysql sh
+   MYSQL_PWD="$MYSQL_PASSWORD" mysql --user="$MYSQL_USER" --database="$MYSQL_DATABASE"
+   ```
+
+   У запрошенні `mysql>` виконайте:
+
+   ```sql
+   SELECT id, status, attempt_count, last_error FROM events ORDER BY id DESC LIMIT 20;
+   SELECT id, queue, attempts, available_at FROM jobs ORDER BY id DESC LIMIT 20;
+   ```
+
+   Вийдіть із MySQL і shell командами `exit` двічі. Потім перевірте Redis:
+
+   ```sh
    docker compose exec redis redis-cli ping
    ```
 

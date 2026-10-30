@@ -85,6 +85,8 @@ services:
   mysql-test:
     profiles: ["test"]
     image: mysql:8.4
+    tmpfs:
+      - /var/lib/mysql
     command:
       - --default-time-zone=+00:00
       - --character-set-server=utf8mb4
@@ -106,6 +108,8 @@ services:
   redis-test:
     profiles: ["test"]
     image: redis:7.4-alpine
+    tmpfs:
+      - /data
     command: ["redis-server", "--appendonly", "no", "--save", ""]
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]

@@ -29,14 +29,14 @@ class PostbackAcceptanceIntegrationTest extends TestCase
             || config('database.connections.mysql.host') !== 'mysql-test'
             || config('database.connections.mysql.database') !== 'mystery_tag_test'
             || config('database.connections.mysql.username') !== 'mystery_tag_test') {
-            $this->markTestSkipped('Integration tests require the dedicated mystery_tag_test database.');
+            throw new RuntimeException('Integration tests require the dedicated mystery_tag_test database.');
         }
 
         try {
             DB::connection('mysql')->getPdo();
             Redis::connection()->ping();
-        } catch (Throwable) {
-            $this->markTestSkipped('Integration tests require the configured MySQL and Redis services.');
+        } catch (Throwable $exception) {
+            throw new RuntimeException('Integration tests require the configured MySQL and Redis services.', 0, $exception);
         }
 
         Artisan::call('migrate:fresh', ['--force' => true]);
@@ -187,6 +187,8 @@ class PostbackAcceptanceIntegrationTest extends TestCase
                 'accepted_at' => '2026-10-30 10:00:00.000000',
                 'status' => 'pending',
                 'attempt_count' => 0,
+                'last_error' => null,
+                'sent_at' => null,
             ],
             [
                 'click_id' => 'view-second',
@@ -196,6 +198,7 @@ class PostbackAcceptanceIntegrationTest extends TestCase
                 'status' => 'pending',
                 'attempt_count' => 2,
                 'last_error' => 'http_503',
+                'sent_at' => null,
             ],
             [
                 'click_id' => 'view-sent',
@@ -204,6 +207,7 @@ class PostbackAcceptanceIntegrationTest extends TestCase
                 'accepted_at' => '2026-10-30 09:00:00.000000',
                 'status' => 'sent',
                 'attempt_count' => 1,
+                'last_error' => null,
                 'sent_at' => '2026-10-30 09:01:02.123456',
             ],
         ]);
