@@ -19,16 +19,34 @@
     </source>
     <php>
         <env name="APP_ENV" value="testing"/>
+        <env name="APP_KEY" value="base64:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="/>
+        <env name="APP_TIMEZONE" value="UTC"/>
+        <env name="APP_DEBUG" value="false"/>
         <env name="APP_MAINTENANCE_DRIVER" value="file"/>
         <env name="BCRYPT_ROUNDS" value="4"/>
         <env name="BROADCAST_CONNECTION" value="null"/>
         <env name="CACHE_STORE" value="array"/>
-        <env name="DB_CONNECTION" value="sqlite"/>
-        <env name="DB_DATABASE" value=":memory:"/>
+        <env name="DB_CONNECTION" value="mysql"/>
+        <env name="DB_HOST" value="mysql-test"/>
+        <env name="DB_PORT" value="3306"/>
+        <env name="DB_DATABASE" value="mystery_tag_test"/>
+        <env name="DB_USERNAME" value="mystery_tag_test"/>
+        <env name="DB_PASSWORD" value="mystery_tag_test_password"/>
+        <env name="DB_QUEUE_CONNECTION" value="mysql"/>
+        <env name="DB_QUEUE_RETRY_AFTER" value="30"/>
         <env name="DB_URL" value=""/>
         <env name="MAIL_MAILER" value="array"/>
-        <env name="QUEUE_CONNECTION" value="sync"/>
+        <env name="QUEUE_CONNECTION" value="database"/>
         <env name="SESSION_DRIVER" value="array"/>
+        <env name="REDIS_CLIENT" value="phpredis"/>
+        <env name="REDIS_HOST" value="redis-test"/>
+        <env name="PARTNER_API_URL" value="http://mock-partner:9000/postback"/>
+        <env name="PARTNER_CONNECT_TIMEOUT" value="2"/>
+        <env name="PARTNER_HTTP_TIMEOUT" value="5"/>
+        <env name="WORKER_TIMEOUT" value="15"/>
+        <env name="DELIVERY_LEASE_SECONDS" value="45"/>
+        <env name="RECOVERY_LEASE_SECONDS" value="600"/>
+        <env name="REDIS_RESERVATION_LEASE_SECONDS" value="15"/>
         <env name="PULSE_ENABLED" value="false"/>
         <env name="TELESCOPE_ENABLED" value="false"/>
         <env name="NIGHTWATCH_ENABLED" value="false"/>

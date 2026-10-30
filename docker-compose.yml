@@ -1,0 +1,110 @@
+name: mystery-tag-test
+
+x-app-environment: &app-environment
+  APP_TIMEZONE: UTC
+  DB_ROOT_PASSWORD: ""
+  DB_CONNECTION: mysql
+  DB_HOST: mysql
+  DB_PORT: 3306
+  DB_QUEUE_CONNECTION: mysql
+  DB_QUEUE_RETRY_AFTER: "${DB_QUEUE_RETRY_AFTER:-30}"
+  QUEUE_CONNECTION: database
+  REDIS_CLIENT: phpredis
+  REDIS_HOST: redis
+
+x-app-service: &app-service
+  build:
+    context: .
+    target: app
+  image: mystery-tag-test-app:local
+  env_file:
+    - .env
+  environment: *app-environment
+  depends_on:
+    mysql:
+      condition: service_healthy
+    redis:
+      condition: service_healthy
+    migrate:
+      condition: service_completed_successfully
+
+services:
+  mysql:
+    image: mysql:8.4
+    command:
+      - --default-time-zone=+00:00
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:?Set DB_ROOT_PASSWORD in .env}
+      MYSQL_DATABASE: ${DB_DATABASE:?Set DB_DATABASE in .env}
+      MYSQL_USER: ${DB_USERNAME:?Set DB_USERNAME in .env}
+      MYSQL_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD in .env}
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - MYSQL_PWD="$${MYSQL_PASSWORD}" mysql --protocol=TCP --host=127.0.0.1 --user="$${MYSQL_USER}" --database="$${MYSQL_DATABASE}" --execute='SELECT 1'
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 30s
+
+  redis:
+    image: redis:7.4-alpine
+    command: ["redis-server", "--appendonly", "no", "--save", ""]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  migrate:
+    build:
+      context: .
+      target: app
+    image: mystery-tag-test-app:local
+    env_file:
+      - .env
+    environment: *app-environment
+    command: ["php", "artisan", "migrate", "--force"]
+    depends_on:
+      mysql:
+        condition: service_healthy
+
+  app:
+    <<: *app-service
+    ports:
+      - "127.0.0.1:${APP_PORT:-8080}:8000"
+    healthcheck:
+      test:
+        - CMD
+        - php
+        - -r
+        - "$$response = @file_get_contents('http://127.0.0.1:8000/up'); exit($$response === false ? 1 : 0);"
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 15s
+    restart: unless-stopped
+
+  worker:
+    <<: *app-service
+    command:
+      - php
+      - artisan
+      - queue:work
+      - database
+      - --sleep=1
+      - --tries=1
+      - --timeout=${WORKER_TIMEOUT:-15}
+    restart: unless-stopped
+
+  scheduler:
+    <<: *app-service
+    command: ["php", "artisan", "schedule:work"]
+    restart: unless-stopped
+
+volumes:
+  mysql-data:
