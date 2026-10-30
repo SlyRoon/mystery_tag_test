@@ -16,10 +16,15 @@ final class SendPostbackToPartner implements ShouldQueue
     use Queueable;
     use SerializesModels;
 
+    public int $tries = 0;
+
     public function __construct(public readonly int $eventId) {}
 
     public function handle(PostbackDeliveryHandler $handler): void
     {
-        $handler->deliver($this->eventId);
+        $delay = $handler->deliver($this->eventId);
+        if ($delay !== null) {
+            $this->release($delay);
+        }
     }
 }
