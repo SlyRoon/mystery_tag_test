@@ -23,7 +23,7 @@ class RuntimeConfigurationTest extends TestCase
         $this->assertSame(30, config('postback.retry_after'));
         $this->assertSame(45, config('postback.delivery_lease_seconds'));
         $this->assertSame(600, config('postback.recovery_lease_seconds'));
-        $this->assertSame(15, config('postback.redis_reservation_lease_seconds'));
+        $this->assertSame(15000, config('postback.redis_reservation_lease_ms'));
         $this->assertSame([1, 5], config('postback.retry_delays_seconds'));
     }
 

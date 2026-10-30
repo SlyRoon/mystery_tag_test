@@ -10,7 +10,7 @@ return [
     'retry_after' => (int) env('DB_QUEUE_RETRY_AFTER', 30),
     'delivery_lease_seconds' => (int) env('DELIVERY_LEASE_SECONDS', 45),
     'recovery_lease_seconds' => (int) env('RECOVERY_LEASE_SECONDS', 600),
-    'redis_reservation_lease_seconds' => (int) env('REDIS_RESERVATION_LEASE_SECONDS', 15),
+    'redis_reservation_lease_ms' => (int) env('REDIS_RESERVATION_LEASE_MS', 15000),
     'retry_delays_seconds' => array_map(
         'intval',
         explode(',', (string) env('POSTBACK_RETRY_DELAYS', '1,5')),
