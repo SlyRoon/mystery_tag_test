@@ -37,6 +37,7 @@ final class MySqlPostbackAcceptanceStore implements PostbackAcceptanceStore
                 'event_name' => $postback['event'],
                 'amount_canonical' => $postback['amount'],
                 'accepted_at' => $acceptedAt,
+                'next_attempt_at' => $acceptedAt,
                 'status' => 'pending',
                 'attempt_count' => 0,
             ]);

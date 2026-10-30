@@ -48,8 +48,10 @@ class PostbackAcceptanceIntegrationTest extends TestCase
             ->assertExactJson(['status' => 'accepted', 'message' => 'Event received']);
 
         $originalKey = DB::table('deduplication_keys')->first();
+        $originalEvent = DB::table('events')->first();
         $this->assertNotNull($originalKey->accepted_at);
         $this->assertNotNull($originalKey->expires_at);
+        $this->assertSame($originalEvent->accepted_at, $originalEvent->next_attempt_at);
 
         $this->get($this->postbackUrl($clickId, '4.99e1'))
             ->assertOk()
