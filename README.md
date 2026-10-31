@@ -6,16 +6,18 @@
 
 - PHP 8.4 і Laravel 13
 - MySQL 8.4 — події та черга завдань
-- Redis 7.4 — коротке резервування під час дедуплікації
+- Redis 7.4 — швидка перевірка дублікатів на 24 години та коротке резервування під час приймання
 - Docker Compose — локальний запуск API, worker, scheduler, MySQL, Redis і необов’язкового тестового партнера
 
 ## Запуск
 
-Потрібні Docker із Compose v2 та Git. Скопіюйте приклад конфігурації й замініть локальні паролі на власні:
+Потрібні Docker із Compose v2 та Git. Скопіюйте приклад конфігурації. Паролі з `.env.example` придатні лише для локального запуску; для іншого середовища змініть `DB_PASSWORD` і `DB_ROOT_PASSWORD`:
 
 ```powershell
 Copy-Item .env.example .env
 ```
+
+У Git Bash, Linux або macOS: `cp .env.example .env`.
 
 Створіть ключ Laravel і вставте виведене значення `base64:...` у `APP_KEY` у файлі `.env`:
 
@@ -128,7 +130,7 @@ docker compose -p mystery-tag-test-it --profile test down
 
 ## Дедуплікація та передавання
 
-Fingerprint постбека залежить від точних `click_id`, `event` і канонічної числової суми. Redis тимчасово резервує одночасне приймання, а MySQL зберігає остаточне 24-годинне вікно та прийняту подію. Після приймання job надсилає партнеру POST JSON. Будь-який 2xx є успіхом; мережеві помилки, timeout, 429 і 5xx повторюються, максимум три POST загалом. Інші HTTP 4xx не повторюються.
+Fingerprint постбека залежить від точних `click_id`, `event` і канонічної числової суми. Після успішного приймання Redis отримує ключ `dedupe:<fingerprint>` з TTL, що дорівнює залишку 24-годинного вікна: повтор бачить цей ключ і одразу отримує `duplicate`. Одночасні запити розрізняє коротке (15 с) резервування в Redis, а MySQL (`deduplication_keys`) зберігає остаточне вікно та прийняту подію. Якщо ключ у Redis втрачено (перезапуск, `FLUSHALL`) або Redis недоступний, дубліката однаково відсікає MySQL, тому нова подія не створюється. Сума нормалізується до десяткового запису (`49.90` → `49.9`, `1e2` → `100`); до 30 цифр у цілій і дробовій частинах, інакше відповідь 422. Після приймання job надсилає партнеру POST JSON. Будь-який 2xx є успіхом; мережеві помилки, timeout, 429 і 5xx повторюються, максимум три POST загалом. Інші HTTP 4xx не повторюються.
 
 Тестовий партнер можна замінити: задайте `PARTNER_API_URL` у `.env` на HTTP/HTTPS адресу, доступну з контейнерів, і пересоздайте `app`, `worker` та `scheduler`:
 
@@ -142,7 +144,7 @@ docker compose up -d --force-recreate app worker scheduler
 
 ## Діагностика недоставленої події
 
-1. Перевірте відповідь `GET /postback`, а потім знайдіть подію через `GET /api/events` за `click_id`, `status`, `attempt_count` і `last_error`.
+1. Перевірте відповідь `GET /postback`, а потім знайдіть подію через `GET /api/events` (фільтр лише `status`; `click_id` шукайте у списку або SQL нижче) і дивіться `status`, `attempt_count` та `last_error`.
 2. Перевірте контейнери та журнали:
 
    ```sh
@@ -150,25 +152,22 @@ docker compose up -d --force-recreate app worker scheduler
    docker compose --profile mock logs --tail=100 app worker scheduler mock-partner
    ```
 
-3. Перевірте стан подій і черги в MySQL. Відкрийте shell контейнера, потім клієнт MySQL з обліковими даними контейнера:
+3. Перевірте стан подій і черги в MySQL. Команда однакова для Git Bash і PowerShell: SQL передається через stdin, а контейнер сам підставляє свої облікові дані. Щоб знайти подію за `click_id`, додайте `WHERE click_id = 'clk_123'`:
 
    ```sh
-   docker compose exec mysql sh
-   MYSQL_PWD="$MYSQL_PASSWORD" mysql --user="$MYSQL_USER" --database="$MYSQL_DATABASE"
+   echo "SELECT id, click_id, status, attempt_count, last_error FROM events ORDER BY id DESC LIMIT 20; SELECT id, queue, attempts, available_at FROM jobs ORDER BY id DESC LIMIT 20;" | docker compose exec -T mysql sh -c 'MYSQL_PWD=$MYSQL_PASSWORD mysql -u$MYSQL_USER $MYSQL_DATABASE'
    ```
 
-   У запрошенні `mysql>` виконайте:
-
-   ```sql
-   SELECT id, status, attempt_count, last_error FROM events ORDER BY id DESC LIMIT 20;
-   SELECT id, queue, attempts, available_at FROM jobs ORDER BY id DESC LIMIT 20;
-   ```
-
-   Вийдіть із MySQL і shell командами `exit` двічі. Потім перевірте Redis:
+   Потім перевірте Redis:
 
    ```sh
    docker compose exec redis redis-cli ping
+   docker compose exec redis redis-cli --scan --pattern "*dedupe:*"
    ```
+
+   Ключі `dedupe:lease:*` — короткі резервування (15 с), решта `dedupe:*` — 24-годинні маркери дублікатів.
+
+   Подія зі статусом `failed` не відправляється повторно автоматично: повторний постбек з тими самими параметрами протягом 24 годин поверне `duplicate`. Після усунення причини надішліть постбек з іншим `click_id` або дочекайтеся завершення вікна.
 
 4. Звірте `PARTNER_API_URL`, мережеву доступність адреси з worker та HTTP-статус партнера. Для локального mock перевірте `/stats` і його журнали. Після зміни `.env` пересоздайте відповідні контейнери.
 5. Зіставте очищені журнали за `event_id`. Не записуйте в журнали URL із токенами, заголовки чи тіло відповіді партнера.
