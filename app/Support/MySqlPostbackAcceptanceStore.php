@@ -60,12 +60,19 @@ final class MySqlPostbackAcceptanceStore implements PostbackAcceptanceStore
         }, attempts: 3);
     }
 
-    public function isDuplicate(string $fingerprint): bool
+    public function expirationMilliseconds(string $fingerprint): int
     {
-        $key = DB::table('deduplication_keys')->where('fingerprint', $fingerprint)->first();
-        $now = $this->mysqlUtcNow();
+        $row = DB::selectOne(
+            "SELECT TIMESTAMPDIFF(MICROSECOND, '1970-01-01 00:00:00', expires_at) AS expires_at_microseconds "
+            .'FROM deduplication_keys WHERE fingerprint = ?',
+            [$fingerprint],
+        );
 
-        return $key !== null && $key->expires_at !== null && $now < $key->expires_at;
+        if ($row === null || $row->expires_at_microseconds === null) {
+            return 0;
+        }
+
+        return intdiv((int) $row->expires_at_microseconds, 1000);
     }
 
     private function mysqlUtcNow(): string

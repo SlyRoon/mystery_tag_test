@@ -9,5 +9,5 @@ interface PostbackAcceptanceStore
      */
     public function accept(array $postback, string $fingerprint): PostbackAcceptanceOutcome;
 
-    public function isDuplicate(string $fingerprint): bool;
+    public function expirationMilliseconds(string $fingerprint): int;
 }
