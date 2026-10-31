@@ -180,7 +180,7 @@ class PostbackAcceptanceIntegrationTest extends TestCase
         $this->assertSame(1, $event->attempt_count);
         $this->assertNotNull($event->sent_at);
         $this->assertNull($event->last_error);
-        Http::assertSent(fn (Request $request): bool => $request->body() === '{"click_id":"'.$clickId.'","event":"purchase","amount":499e-1}');
+        Http::assertSent(fn (Request $request): bool => $request->body() === '{"click_id":"'.$clickId.'","event":"purchase","amount":49.9}');
         Http::assertSentCount(1);
     }
 
@@ -242,7 +242,7 @@ class PostbackAcceptanceIntegrationTest extends TestCase
             [
                 'click_id' => 'view-first',
                 'event_name' => 'purchase',
-                'amount_canonical' => '499e-1',
+                'amount_canonical' => '49.9',
                 'accepted_at' => '2026-10-30 10:00:00.000000',
                 'status' => 'pending',
                 'attempt_count' => 0,
@@ -262,7 +262,7 @@ class PostbackAcceptanceIntegrationTest extends TestCase
             [
                 'click_id' => 'view-sent',
                 'event_name' => 'purchase',
-                'amount_canonical' => '1e0',
+                'amount_canonical' => '1',
                 'accepted_at' => '2026-10-30 09:00:00.000000',
                 'status' => 'sent',
                 'attempt_count' => 1,

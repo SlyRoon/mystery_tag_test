@@ -17,7 +17,7 @@ class PostbackQueryParserTest extends TestCase
 
         $this->assertSame(' x ', $parsed['click_id']);
         $this->assertSame('Purchase Event', $parsed['event']);
-        $this->assertSame('499e-1', $parsed['amount']);
+        $this->assertSame('49.9', $parsed['amount']);
     }
 
     public function test_accepts_percent_encoded_required_parameter_names(): void
@@ -28,7 +28,7 @@ class PostbackQueryParserTest extends TestCase
 
         $this->assertSame('one', $parsed['click_id']);
         $this->assertSame('purchase', $parsed['event']);
-        $this->assertSame('1e0', $parsed['amount']);
+        $this->assertSame('1', $parsed['amount']);
     }
 
     public function test_rejects_query_longer_than_4096_bytes(): void
