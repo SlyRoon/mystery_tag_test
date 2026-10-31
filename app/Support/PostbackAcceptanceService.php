@@ -7,8 +7,6 @@ use Throwable;
 
 final class PostbackAcceptanceService implements PostbackAcceptor
 {
-    private const CONTENTION_WAIT_MICROSECONDS = 100_000;
-
     public function __construct(
         private readonly RedisPostbackReservation $reservation,
         private readonly PostbackAcceptanceStore $store,
@@ -23,39 +21,58 @@ final class PostbackAcceptanceService implements PostbackAcceptor
         );
 
         try {
+            if ($this->reservation->isAccepted($fingerprint)) {
+                return PostbackAcceptanceOutcome::Duplicate;
+            }
+
             $lease = $this->reservation->acquire($fingerprint);
         } catch (Throwable $exception) {
-            $this->logFailure('redis_reserve', $exception);
+            $this->logFailure('redis_lookup_or_reserve', $exception);
 
-            return PostbackAcceptanceOutcome::Unavailable;
+            return $this->acceptInMySql($postback, $fingerprint, false);
         }
 
         if ($lease === null) {
-            usleep(self::CONTENTION_WAIT_MICROSECONDS);
-
-            try {
-                return $this->store->isDuplicate($fingerprint)
-                    ? PostbackAcceptanceOutcome::Duplicate
-                    : PostbackAcceptanceOutcome::Unavailable;
-            } catch (Throwable $exception) {
-                $this->logFailure('duplicate_lookup', $exception);
-
-                return PostbackAcceptanceOutcome::Unavailable;
-            }
+            // Інший запит саме приймає цей постбек. Рядок deduplication_keys у MySQL
+            // серіалізує обидва запити: другий дочекається коміту й отримає duplicate.
+            return $this->acceptInMySql($postback, $fingerprint, true);
         }
 
         try {
-            return $this->store->accept($postback, $fingerprint);
-        } catch (Throwable $exception) {
-            $this->logFailure('mysql_accept', $exception);
-
-            return PostbackAcceptanceOutcome::Unavailable;
+            return $this->acceptInMySql($postback, $fingerprint, true);
         } finally {
             try {
                 $lease->release();
             } catch (Throwable $exception) {
                 $this->logFailure('redis_release', $exception);
             }
+        }
+    }
+
+    private function acceptInMySql(array $postback, string $fingerprint, bool $cache): PostbackAcceptanceOutcome
+    {
+        try {
+            $outcome = $this->store->accept($postback, $fingerprint);
+        } catch (Throwable $exception) {
+            $this->logFailure('mysql_accept', $exception);
+
+            return PostbackAcceptanceOutcome::Unavailable;
+        }
+
+        if ($cache) {
+            $this->cacheCommittedWindow($fingerprint);
+        }
+
+        return $outcome;
+    }
+
+    private function cacheCommittedWindow(string $fingerprint): void
+    {
+        try {
+            $expirationMilliseconds = $this->store->expirationMilliseconds($fingerprint);
+            $this->reservation->rememberAccepted($fingerprint, $expirationMilliseconds);
+        } catch (Throwable $exception) {
+            $this->logFailure('redis_cache', $exception);
         }
     }
 

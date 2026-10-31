@@ -3,7 +3,12 @@
 namespace Tests\Feature;
 
 use App\Jobs\SendPostbackToPartner;
+use App\Support\MySqlPostbackAcceptanceStore;
+use App\Support\PostbackAcceptanceOutcome;
+use App\Support\PostbackAcceptanceService;
 use App\Support\PostbackDeliveryHandler;
+use App\Support\PostbackFingerprint;
+use App\Support\RedisPostbackReservation;
 use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Artisan;
@@ -56,9 +61,20 @@ class PostbackAcceptanceIntegrationTest extends TestCase
         $this->assertNotNull($originalKey->expires_at);
         $this->assertSame($originalEvent->accepted_at, $originalEvent->next_attempt_at);
 
+        $cacheKey = 'dedupe:'.bin2hex(PostbackFingerprint::from($clickId, 'purchase', '49.9'));
+        $this->assertSame('1', Redis::get($cacheKey));
+        $this->assertGreaterThan(0, Redis::pttl($cacheKey));
+        $this->assertLessThanOrEqual(86_400_000, Redis::pttl($cacheKey));
+
         $this->get($this->postbackUrl($clickId, '4.99e1'))
             ->assertOk()
             ->assertExactJson(['status' => 'duplicate', 'message' => 'Event already received']);
+
+        Redis::del($cacheKey);
+        $this->get($this->postbackUrl($clickId, '49.9'))
+            ->assertOk()
+            ->assertExactJson(['status' => 'duplicate', 'message' => 'Event already received']);
+        $this->assertSame('1', Redis::get($cacheKey));
 
         $this->assertSame(1, DB::table('events')->count());
         $this->assertSame(1, DB::table('jobs')->count());
@@ -77,6 +93,7 @@ class PostbackAcceptanceIntegrationTest extends TestCase
         $this->get($this->postbackUrl($clickId, '1'))->assertOk();
 
         DB::table('deduplication_keys')->update(['expires_at' => DB::raw('UTC_TIMESTAMP(6)')]);
+        Redis::del('dedupe:'.bin2hex(PostbackFingerprint::from($clickId, 'purchase', '1')));
 
         $this->get($this->postbackUrl($clickId, '1'))
             ->assertOk()
@@ -86,8 +103,49 @@ class PostbackAcceptanceIntegrationTest extends TestCase
         $this->assertSame(2, DB::table('jobs')->count());
     }
 
+    public function test_redis_outage_uses_mysql_for_acceptance_and_duplicates(): void
+    {
+        $service = new PostbackAcceptanceService(
+            new RedisPostbackReservation(fn () => throw new RuntimeException('Redis unavailable'), 15000),
+            new MySqlPostbackAcceptanceStore,
+        );
+        $postback = [
+            'click_id' => 'redis-outage-'.bin2hex(random_bytes(8)),
+            'event' => 'purchase',
+            'amount' => '1',
+        ];
+
+        $this->assertSame(PostbackAcceptanceOutcome::Accepted, $service->accept($postback));
+        $this->assertSame(PostbackAcceptanceOutcome::Duplicate, $service->accept($postback));
+        $this->assertSame(1, DB::table('events')->count());
+        $this->assertSame(1, DB::table('jobs')->count());
+    }
+
+    public function test_expired_deadline_does_not_create_a_redis_marker(): void
+    {
+        $fingerprint = random_bytes(32);
+        $key = 'dedupe:'.bin2hex($fingerprint);
+        $deadlineMilliseconds = (int) floor(microtime(true) * 1000) - 1000;
+
+        app(RedisPostbackReservation::class)->rememberAccepted($fingerprint, $deadlineMilliseconds);
+
+        $this->assertNull(Redis::get($key));
+    }
+
+    public function test_near_expiry_deadline_uses_mysql_instead_of_a_redis_marker(): void
+    {
+        $fingerprint = random_bytes(32);
+        $key = 'dedupe:'.bin2hex($fingerprint);
+        $deadlineMilliseconds = (int) floor(microtime(true) * 1000) + 500;
+
+        app(RedisPostbackReservation::class)->rememberAccepted($fingerprint, $deadlineMilliseconds);
+
+        $this->assertNull(Redis::get($key));
+    }
+
     public function test_job_insert_failure_rolls_back_event_and_deduplication_key(): void
     {
+        $clickId = 'rollback-'.bin2hex(random_bytes(8));
         $jobInsertFailed = false;
         DB::listen(function (QueryExecuted $query) use (&$jobInsertFailed): void {
             if (! $jobInsertFailed && preg_match('/\binsert\s+into\s+[`"]?jobs\b/i', $query->sql) === 1) {
@@ -96,7 +154,7 @@ class PostbackAcceptanceIntegrationTest extends TestCase
             }
         });
 
-        $this->get($this->postbackUrl('rollback-'.bin2hex(random_bytes(8)), '1'))
+        $this->get($this->postbackUrl($clickId, '1'))
             ->assertStatus(503)
             ->assertExactJson(['status' => 'error', 'message' => 'Service unavailable']);
 
@@ -104,6 +162,7 @@ class PostbackAcceptanceIntegrationTest extends TestCase
         $this->assertSame(0, DB::table('events')->count());
         $this->assertSame(0, DB::table('jobs')->count());
         $this->assertSame(0, DB::table('deduplication_keys')->count());
+        $this->assertNull(Redis::get('dedupe:'.bin2hex(PostbackFingerprint::from($clickId, 'purchase', '1'))));
     }
 
     public function test_successful_partner_response_marks_the_event_sent(): void
