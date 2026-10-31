@@ -4,9 +4,19 @@ namespace App\Support;
 
 use InvalidArgumentException;
 
+/**
+ * Приводить суму до канонічного десяткового запису без експоненти:
+ * 49.90 -> "49.9", 1e2 -> "100", 0.00 -> "0". Однакові числові значення
+ * завжди дають однаковий рядок, тому він придатний і для дедуплікації,
+ * і для JSON-числа, яке отримує партнер.
+ */
 final class DecimalAmountNormalizer
 {
     private const GRAMMAR = '/\A[+-]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:[eE][+-]?[0-9]+)?\z/';
+
+    public const MAX_INTEGER_DIGITS = 30;
+
+    public const MAX_FRACTION_DIGITS = 30;
 
     public function normalize(string $amount): string
     {
@@ -14,16 +24,20 @@ final class DecimalAmountNormalizer
             throw new InvalidArgumentException('Amount must be a non-negative decimal number');
         }
 
-        $negative = str_starts_with($amount, '-');
-        if ($amount[0] === '+' || $amount[0] === '-') {
-            $amount = substr($amount, 1);
-        }
+        $negative = $amount[0] === '-';
+        $amount = ltrim($amount, '+-');
 
-        $exponent = '0';
-        $exponentMarker = strcspn($amount, 'eE');
-        if ($exponentMarker < strlen($amount)) {
-            $exponent = $this->normalizeSignedInteger(substr($amount, $exponentMarker + 1));
-            $amount = substr($amount, 0, $exponentMarker);
+        $exponent = 0;
+        $exponentDigits = '';
+        $marker = strcspn($amount, 'eE');
+        if ($marker < strlen($amount)) {
+            $exponentText = substr($amount, $marker + 1);
+            $exponentNegative = $exponentText[0] === '-';
+            $exponentDigits = ltrim(ltrim($exponentText, '+-'), '0');
+            $amount = substr($amount, 0, $marker);
+            if (strlen($exponentDigits) <= 4) {
+                $exponent = (int) ($exponentDigits === '' ? '0' : $exponentDigits) * ($exponentNegative ? -1 : 1);
+            }
         }
 
         [$integerPart, $fractionalPart] = array_pad(explode('.', $amount, 2), 2, '');
@@ -37,115 +51,36 @@ final class DecimalAmountNormalizer
             throw new InvalidArgumentException('Amount must not be negative');
         }
 
+        if (strlen($exponentDigits) > 4) {
+            throw new InvalidArgumentException('Amount exponent is too large');
+        }
+
         $trailingZeros = strlen($digits) - strlen(rtrim($digits, '0'));
-        $coefficient = $trailingZeros === 0
-            ? $digits
-            : substr($digits, 0, -$trailingZeros);
-        $exponent = $this->addSmallInteger($exponent, $trailingZeros - strlen($fractionalPart));
+        $digits = substr($digits, 0, strlen($digits) - $trailingZeros);
+        $scale = $exponent + $trailingZeros - strlen($fractionalPart);
 
-        return $coefficient.'e'.$exponent;
-    }
-
-    private function normalizeSignedInteger(string $value): string
-    {
-        $negative = str_starts_with($value, '-');
-        if ($value[0] === '+' || $value[0] === '-') {
-            $value = substr($value, 1);
-        }
-
-        $magnitude = ltrim($value, '0');
-        if ($magnitude === '') {
-            return '0';
-        }
-
-        return $negative ? '-'.$magnitude : $magnitude;
-    }
-
-    private function addSmallInteger(string $left, int $right): string
-    {
-        $leftNegative = str_starts_with($left, '-');
-        $leftMagnitude = $leftNegative ? substr($left, 1) : $left;
-        $rightNegative = $right < 0;
-        $rightMagnitude = (string) abs($right);
-
-        if ($leftNegative === $rightNegative) {
-            $magnitude = $this->addMagnitudes($leftMagnitude, $rightMagnitude);
-            $negative = $leftNegative;
-        } else {
-            $comparison = $this->compareMagnitudes($leftMagnitude, $rightMagnitude);
-            if ($comparison === 0) {
-                return '0';
+        if ($scale >= 0) {
+            if (strlen($digits) + $scale > self::MAX_INTEGER_DIGITS) {
+                throw new InvalidArgumentException('Amount is too large');
             }
 
-            if ($comparison > 0) {
-                $magnitude = $this->subtractMagnitudes($leftMagnitude, $rightMagnitude);
-                $negative = $leftNegative;
-            } else {
-                $magnitude = $this->subtractMagnitudes($rightMagnitude, $leftMagnitude);
-                $negative = $rightNegative;
-            }
+            return $digits.str_repeat('0', $scale);
         }
 
-        if ($magnitude === '0') {
-            return '0';
+        $fractionLength = -$scale;
+        if ($fractionLength > self::MAX_FRACTION_DIGITS) {
+            throw new InvalidArgumentException('Amount has too many fractional digits');
         }
 
-        return $negative ? '-'.$magnitude : $magnitude;
-    }
-
-    private function addMagnitudes(string $left, string $right): string
-    {
-        $leftIndex = strlen($left) - 1;
-        $rightIndex = strlen($right) - 1;
-        $carry = 0;
-        $result = '';
-
-        while ($leftIndex >= 0 || $rightIndex >= 0 || $carry > 0) {
-            $sum = $carry;
-            if ($leftIndex >= 0) {
-                $sum += ord($left[$leftIndex--]) - 48;
-            }
-            if ($rightIndex >= 0) {
-                $sum += ord($right[$rightIndex--]) - 48;
-            }
-
-            $result .= (string) ($sum % 10);
-            $carry = intdiv($sum, 10);
+        if ($fractionLength >= strlen($digits)) {
+            return '0.'.str_repeat('0', $fractionLength - strlen($digits)).$digits;
         }
 
-        return strrev($result);
-    }
-
-    private function subtractMagnitudes(string $larger, string $smaller): string
-    {
-        $largerIndex = strlen($larger) - 1;
-        $smallerIndex = strlen($smaller) - 1;
-        $borrow = 0;
-        $result = '';
-
-        while ($largerIndex >= 0) {
-            $digit = ord($larger[$largerIndex--]) - 48 - $borrow;
-            $subtrahend = $smallerIndex >= 0 ? ord($smaller[$smallerIndex--]) - 48 : 0;
-
-            if ($digit < $subtrahend) {
-                $digit += 10;
-                $borrow = 1;
-            } else {
-                $borrow = 0;
-            }
-
-            $result .= (string) ($digit - $subtrahend);
+        $integer = substr($digits, 0, strlen($digits) - $fractionLength);
+        if (strlen($integer) > self::MAX_INTEGER_DIGITS) {
+            throw new InvalidArgumentException('Amount is too large');
         }
 
-        $magnitude = ltrim(strrev($result), '0');
-
-        return $magnitude === '' ? '0' : $magnitude;
-    }
-
-    private function compareMagnitudes(string $left, string $right): int
-    {
-        $lengthComparison = strlen($left) <=> strlen($right);
-
-        return $lengthComparison !== 0 ? $lengthComparison : strcmp($left, $right);
+        return $integer.'.'.substr($digits, -$fractionLength);
     }
 }

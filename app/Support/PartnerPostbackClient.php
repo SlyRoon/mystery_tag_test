@@ -14,7 +14,7 @@ final class PartnerPostbackClient
      */
     public function send(string $clickId, string $eventName, string $canonicalAmount): PartnerPostbackResponse
     {
-        if (preg_match('/\A(?:0|[1-9][0-9]*e-?(?:0|[1-9][0-9]*))\z/', $canonicalAmount) !== 1) {
+        if (preg_match('/\A(?:0|[1-9][0-9]*)(?:\.[0-9]*[1-9])?\z/', $canonicalAmount) !== 1) {
             throw new InvalidArgumentException('Amount must be a canonical decimal number');
         }
 
