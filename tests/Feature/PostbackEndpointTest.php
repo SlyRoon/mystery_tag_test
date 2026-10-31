@@ -10,12 +10,21 @@ use Tests\TestCase;
 
 class PostbackEndpointTest extends TestCase
 {
+    public function test_head_postback_does_not_accept_an_event(): void
+    {
+        $this->mock(PostbackAcceptor::class)->shouldNotReceive('accept');
+
+        $this->head('/postback?click_id=clk_123&event=purchase&amount=49.90')
+            ->assertStatus(405)
+            ->assertHeader('Allow', 'GET');
+    }
+
     public function test_new_postback_returns_the_accepted_response(): void
     {
         $this->mock(PostbackAcceptor::class)
             ->shouldReceive('accept')
             ->once()
-            ->with(['click_id' => 'clk_123', 'event' => 'purchase', 'amount' => '499e-1'])
+            ->with(['click_id' => 'clk_123', 'event' => 'purchase', 'amount' => '49.9'])
             ->andReturn(PostbackAcceptanceOutcome::Accepted);
 
         $this->get('/postback?click_id=clk_123&event=purchase&amount=49.90')

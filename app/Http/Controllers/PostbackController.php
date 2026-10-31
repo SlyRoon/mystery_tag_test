@@ -14,6 +14,10 @@ class PostbackController extends Controller
 {
     public function __invoke(Request $request, PostbackQueryParser $parser, PostbackAcceptor $acceptor): JsonResponse
     {
+        if (! $request->isMethod('GET')) {
+            return $this->error('Method not allowed', 405)->header('Allow', 'GET');
+        }
+
         try {
             $postback = $parser->parse((string) $request->server->get('QUERY_STRING', ''));
         } catch (LengthException) {
